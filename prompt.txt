@@ -1,0 +1,20 @@
+Vreau sa creez o aplicatie python care citeste fisiere de tip README.md, .txt, .yaml si pe baza a ceea ce se gaseste in aceste fisiere, genereaza un fisier pptx cu ajutorul IA.
+Tehnologii folosite:
+python ca limbaj de programare,
+pptx ca librarie,
+request ca librarie,
+ollama pentru partea de IA, adica pentru generarea textului care va fi introdus in pptx.
+
+Cum va functiona precis?
+
+Citeste fisierele README.md, .txt, .yaml. cu ajutorul with open(<filename>, 'r') as fr:fr.read() salveazi asta intr-o variabila sau o trimiti direct catre ollama cu  request.post()(URL-ul API-ului ollama il vom discuta mai tarziu)* procesezi si extragi textul din raspunsul json si il pui intr-un fisier pptx cu ajutorul librariei pptx.TINE CONT DE NUMARUL DE SLIDE-URI, DESIGN-UL SPECIFICAT(FUNDAL DE CULOARE ROSIE, TEXT BOLD,IMAGINI(pentru asta userul va trebui sa ataseze o path-ul imaginii)) DACA CEVA NU POATE FI ADAUGAT(ERROARE SAU FUNCTIONALITATEA NU POATE FI ADAUGATA PRIN COD) IN FISIERUL INTRODUS DE CATRE USER SCRIE CA NU POATE ADAUGA ACEASTA FUNCTIONALITATE IN FISIERUL PPTX SI CA TREBUIE ADAUGATA MANUAL ULTERIOR dupa aceea genereaza un fisier pptx cu ajutorul librariei pptx avand grija daca userul specifica si un nume pentru el. Cu ajutorul with open(<filename>, 'w') as fr:fr.write() poti cere extra detalii, nota ceea nu a putut fi integrat dar si ceea ce a putut fi integrat cu succes in pptx si intotdeauna LA FINALUL FISIERULUI INTRODUS DE USER TEXTUL URMATOR in limba in care este fisierul(.md,.yaml,.txt):'Facut cu iubire de catre gPPTX, ATENTIE gPPTX POATE AVEA ERORI, SE RECOMANDA VERIFICAREA FISIERULUI FINAL!'
+
+*URL="http://localhost:11434/api/generate", MODEL="gemma3:270m",PROMPT=<Ceea ce a fost citit din fisierul README.md, .txt, .yaml> toate astea vor fi incadrate in variabila payload={"model": MODEL, "prompt": PROMPT,"stream":False} si puse in request.post(URL,json=payload)
+
+Pe langa asta, in acest folder trebuie sa generezi:
+> un fisier requirements.py unde utilizatorul poate vedea ce librarii sunt folosite si care sunt necesare pentru a rula codul.
+> un fisier Installments.txt unde utilizatorul poate vedea ce trebuie sa aiba instalat pe computerul lui pentru a rula codul.
+> un fisier DEVREADME.md unde utilizatorul poate vedea cum sa ruleze codul, fisierul asta introduce si requirements.py si Installments.txt si le structureaza pas cu pas astfel incat si cineva care are 0 experinta in programare sa poate intelege logica din spate, functionalitatea, folosinta si cum il poate utiliza pe propiul pc
+>un fisier README.md unde utilizatorul normal poate vedea si intelege cum trebuie sa foloseasca aplicatia si ce asteptari sa aiba de la ea.
+
+MODIFICARE: As vrea ca aplicatia sa fie intr-o fereastra exterioara, practic cand utilizatoul apasa pe fisierul python sa se deschida o fereastra care sa contina input-urile pentru fisierul README.md, .txt, .yaml si/sau(in functie de caz pentru imagine) tot acolo utilizatorul va fi instintat cand fisierul pptx este gata si va putea sa i modifice numele sau locul unde va fi instalat.
