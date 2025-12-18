@@ -2,7 +2,7 @@ import requests
 import json
 
 class OllamaClient:
-    def __init__(self, model="gemma3:270m", url="http://localhost:11434/api/generate"):
+    def __init__(self, model="gemma3:270m", url="http://localhost:11434/api/generate"):#
         self.model = model
         self.url = url
 

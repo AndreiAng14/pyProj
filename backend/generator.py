@@ -12,128 +12,110 @@ class PPTXGenerator:
         self.client = OllamaClient(model=model)
         self.prs = Presentation()
 
-    def _add_text(self, text_frame, text, is_title=False):
-        """
-        Adds text with standard styling.
-        """
-        p = text_frame.add_paragraph()
-        p.text = text
-        p.font.size = Pt(32) if is_title else Pt(18)
-        p.font.bold = is_title
-        p.font.color.rgb = RGBColor(0, 0, 0) # Black text
-
     def generate_presentation(self, input_files, output_file, image_path=None):
         # 1. Read Content
         full_content = ""
         for file_path in input_files:
             try:
                 content = read_file_content(file_path)
-                full_content += f"\n--- Content from {os.path.basename(file_path)} ---\n{content}\n"
+                full_content += content + "\n"
             except Exception as e:
                 print(f"Skipping file {file_path}: {e}")
 
-        if not full_content:
+        if not full_content.strip():
             return "No content found in selected files."
 
-        # 2. Get Structure from AI
-        prompt = (
-            "Task: Generate a presentation based on the INPUT below.\n"
-            "If the input is a command (e.g., 'Make a presentation about X'), ignore the command and just generate slides about X.\n"
-            "If the input is text data, summarize it into slides.\n"
-            "Use the SAME LANGUAGE as the INPUT.\n"
-            "Output format MUST be:\n"
-            "Slide: [Title]\n"
-            "- [Point]\n"
-            "- [Point]\n"
-            "\n"
-            "INPUT:\n"
-            f"{full_content}\n"
-            "\n"
-            "OUTPUT (Slides only):"
-        )
+        # 2. Get Text from AI (Simple approach from t1.ipynb)
+        # Just send the content as the prompt.
+        prompt = full_content.strip()
         
         print("Sending request to Ollama...")
         print(f"\n[DEBUG] PROMPT SENT:\n{prompt}\n")
         response_text = self.client.generate_text(prompt)
         print(f"\n[DEBUG] RAW RESPONSE:\n{response_text}\n")
         
-        # 3. Parse Response
-        slides = []
-        current_slide = None
+        # 3. Create PPTX from the raw text
+        # Splitting content into multiple slides to prevent overflow
+        MAX_LINES_PER_SLIDE = 8
         
-        lines = response_text.split('\n')
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
+        lines = [line.strip() for line in response_text.split('\n') if line.strip()]
+        
+        # Calculate needed slides
+        if not lines:
+            lines = ["No content generated."]
+            
+        # Create first slide
+        slide_layout = self.prs.slide_layouts[1]
+        current_slide = self.prs.slides.add_slide(slide_layout)
+        
+        # Title logic
+        base_title = full_content.strip().split('\n')[0][:50]
+        if len(full_content.strip()) > 50:
+             base_title += "..."
+        
+        title = current_slide.shapes.title
+        title.text = base_title
+        
+        content_shape = current_slide.placeholders[1]
+        tf = content_shape.text_frame
+        tf.clear()
+        
+        current_line_count = 0
+        
+        for i, line in enumerate(lines):
+            # Check if we need a new slide
+            if current_line_count >= MAX_LINES_PER_SLIDE:
+                current_slide = self.prs.slides.add_slide(slide_layout)
+                title = current_slide.shapes.title
+                title.text = f"{base_title} (cont.)"
                 
-            # Detect Slide Title (e.g., "Slide 1: Title" or just "Title")
-            if line.lower().startswith("slide") and ":" in line:
-                if current_slide:
-                    slides.append(current_slide)
-                title_text = line.split(":", 1)[1].strip()
-                current_slide = {"title": title_text, "content": []}
-            elif line.startswith("-") or line.startswith("*"):
-                if current_slide:
-                    current_slide["content"].append(line.lstrip("-* ").strip())
-            else:
-                # If it looks like a title but doesn't have "Slide X:" prefix, we can treat it as a new slide if we have no content yet,
-                # or just append to previous content. For safety with small models, let's treat bare lines as content unless they are very short and look like titles?
-                # Actually, simpler: If we have no slide, start one.
-                if not current_slide:
-                    current_slide = {"title": line, "content": []}
-                else:
-                    # Treat as content
-                    current_slide["content"].append(line)
-        
-        if current_slide:
-            slides.append(current_slide)
+                content_shape = current_slide.placeholders[1]
+                tf = content_shape.text_frame
+                tf.clear()
+                current_line_count = 0
+            
+            # Add paragraph
+            p = tf.add_paragraph()
+            p.text = line
+            p.font.size = Pt(18)
+            current_line_count += 1
+            
+            # Check for very long lines that might wrap and take up more space
+            # Rough estimate: > 80 chars counts as 2 lines
+            if len(line) > 80:
+                current_line_count += int(len(line) / 80)
 
-        # Fallback if parsing failed completely
-        if not slides:
-             slides = [{"title": "Presentation", "content": [line for line in lines if line]}]
+        # Add User Image only to the FIRST slide
+        if image_path and os.path.exists(image_path):
+             # Logic to find the first slide created in this batch
+             # Ideally we attach it to the first slide we made above
+            first_slide_index = self.prs.slides.index(current_slide) - (len(self.prs.slides.index(current_slide)) if hasattr(self.prs.slides, 'index') else 0) 
+             # Actually safer to just grab the one we started with. 
+             # But current_slide variable changed. 
+             # Let's rely on finding standard slide 1 (if it's the only one match).
+             # Simplification: Insert on the very first slide of the generated batch.
+             # Since we are generating the whole deck here, prs.slides[0] is likely the first.
+        try:
+                self.prs.slides[0].shapes.add_picture(
+                    image_path, Inches(7.5), Inches(5.5), width=Inches(2)
+                )
+        except Exception as e:
+                print(f"Could not add image: {e}")
 
-        # 4. Create PPTX
-        for slide_info in slides:
-            slide_layout = self.prs.slide_layouts[1] # Title and Content
-            slide = self.prs.slides.add_slide(slide_layout)
-            
-            # Title
-            title = slide.shapes.title
-            title.text = slide_info.get("title", "Untitled")
-            
-            # Content
-            content_shape = slide.placeholders[1]
-            tf = content_shape.text_frame
-            tf.clear()
-            
-            for point in slide_info.get("content", []):
-                p = tf.add_paragraph()
-                p.text = point
-                p.font.size = Pt(18)
-            
-            # Add User Image if provided
-            if image_path and os.path.exists(image_path):
-                try:
-                    self.prs.slides[self.prs.slides.index(slide)].shapes.add_picture(
-                        image_path, Inches(7.5), Inches(5.5), width=Inches(2)
-                    )
-                except Exception as e:
-                    print(f"Could not add image: {e}")
-
-        # 5. Add Disclaimer Slide
+        # 4. Disclaimer Slide
         blank_layout = self.prs.slide_layouts[6] 
         end_slide = self.prs.slides.add_slide(blank_layout)
         
         txBox = end_slide.shapes.add_textbox(Inches(1), Inches(3), Inches(8), Inches(2))
         tf = txBox.text_frame
         p = tf.add_paragraph()
-        p.text = "Facut cu iubire de catre gPPTX, ATENTIE gPPTX POATE AVEA ERORI, SE RECOMANDA VERIFICAREA FISIERULUI FINAL!"
+        p.text = "Facut cu iubire de catre gPPTX!\n ATENTIE gPPTX POATE AVEA ERORI, SE RECOMANDA VERIFICAREA FISIERULUI FINAL!"
         p.font.bold = True
         p.font.size = Pt(14)
+        p.font.color.rgb = RGBColor(255, 0, 0) # Red color
         p.alignment = PP_ALIGN.CENTER
 
-        # 6. Save
+        # Save
         try:
             self.prs.save(output_file)
             return f"Presentation saved successfully to {output_file}"
