@@ -1,0 +1,11 @@
+# Installation Guide
+
+1.  Ensure you have Python installed (version 3.8 or higher is recommended).
+2.  Install the required dependencies:
+    *   Option A (Easy): Double-click `requirements.py` (or run `python requirements.py` in terminal).
+    *   Option B (Manual): Open a terminal in this folder and run `pip install -r requirements.txt`.
+3.  Ensure Ollama is installed and running:
+    *   If not installed, download from https://ollama.com/.
+    *   Run `ollama run gemma3:270m` in your terminal to pull the model.
+4.  Run the application:
+    *   Run `python main.py`.
