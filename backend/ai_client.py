@@ -20,8 +20,7 @@ class OllamaClient:
             response = requests.post(self.url, json=payload)
             response.raise_for_status()
             
-            data = response.json()
-            return data.get("response", "")
+            return response.json()['response']
             
         except requests.exceptions.RequestException as e:
             return f"Error connecting to Ollama: {e}"

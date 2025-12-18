@@ -12,24 +12,15 @@ class PPTXGenerator:
         self.client = OllamaClient(model=model)
         self.prs = Presentation()
 
-    def _apply_slide_master_style(self, slide):
+    def _add_text(self, text_frame, text, is_title=False):
         """
-        Applies the specific design: Red background.
-        """
-        background = slide.background
-        fill = background.fill
-        fill.solid()
-        fill.fore_color.rgb = RGBColor(255, 0, 0)  # Red Background
-
-    def _add_text_bold(self, text_frame, text):
-        """
-        Adds text with Bold styling.
+        Adds text with standard styling.
         """
         p = text_frame.add_paragraph()
         p.text = text
-        p.font.bold = True
-        p.font.size = Pt(18)
-        p.font.color.rgb = RGBColor(255, 255, 255) # White text for better contrast on red
+        p.font.size = Pt(32) if is_title else Pt(18)
+        p.font.bold = is_title
+        p.font.color.rgb = RGBColor(0, 0, 0) # Black text
 
     def generate_presentation(self, input_files, output_file, image_path=None):
         # 1. Read Content
@@ -46,50 +37,83 @@ class PPTXGenerator:
 
         # 2. Get Structure from AI
         prompt = (
-            "You are a presentation assistant. Analyze the following text and extract key points for a PowerPoint presentation. "
-            "Return ONLY a JSON object with this structure: "
-            "{'slides': [{'title': 'Slide Title', 'content': ['bullet 1', 'bullet 2']}]}. "
-            "Do not add any markdown formatting like ```json. Just raw JSON. "
-            f"\n\nTEXT:\n{full_content}"
+            "Task: Generate a presentation based on the INPUT below.\n"
+            "If the input is a command (e.g., 'Make a presentation about X'), ignore the command and just generate slides about X.\n"
+            "If the input is text data, summarize it into slides.\n"
+            "Use the SAME LANGUAGE as the INPUT.\n"
+            "Output format MUST be:\n"
+            "Slide: [Title]\n"
+            "- [Point]\n"
+            "- [Point]\n"
+            "\n"
+            "INPUT:\n"
+            f"{full_content}\n"
+            "\n"
+            "OUTPUT (Slides only):"
         )
         
         print("Sending request to Ollama...")
+        print(f"\n[DEBUG] PROMPT SENT:\n{prompt}\n")
         response_text = self.client.generate_text(prompt)
+        print(f"\n[DEBUG] RAW RESPONSE:\n{response_text}\n")
         
-        # Clean response if it contains markdown code blocks
-        clean_response = response_text.replace("```json", "").replace("```", "").strip()
+        # 3. Parse Response
+        slides = []
+        current_slide = None
+        
+        lines = response_text.split('\n')
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            # Detect Slide Title (e.g., "Slide 1: Title" or just "Title")
+            if line.lower().startswith("slide") and ":" in line:
+                if current_slide:
+                    slides.append(current_slide)
+                title_text = line.split(":", 1)[1].strip()
+                current_slide = {"title": title_text, "content": []}
+            elif line.startswith("-") or line.startswith("*"):
+                if current_slide:
+                    current_slide["content"].append(line.lstrip("-* ").strip())
+            else:
+                # If it looks like a title but doesn't have "Slide X:" prefix, we can treat it as a new slide if we have no content yet,
+                # or just append to previous content. For safety with small models, let's treat bare lines as content unless they are very short and look like titles?
+                # Actually, simpler: If we have no slide, start one.
+                if not current_slide:
+                    current_slide = {"title": line, "content": []}
+                else:
+                    # Treat as content
+                    current_slide["content"].append(line)
+        
+        if current_slide:
+            slides.append(current_slide)
 
-        try:
-            data = json.loads(clean_response)
-            slides_data = data.get("slides", [])
-        except json.JSONDecodeError:
-            # Fallback if valid JSON isn't returned
-            print("AI response was not valid JSON. Creating generic slides.")
-            slides_data = [{"title": "Presentation Content", "content": [line for line in response_text.split('\n') if line.strip()]}]
+        # Fallback if parsing failed completely
+        if not slides:
+             slides = [{"title": "Presentation", "content": [line for line in lines if line]}]
 
-        # 3. Create PPTX
-        for slide_info in slides_data:
-            slide_layout = self.prs.slide_layouts[1] # Bullet content layout
+        # 4. Create PPTX
+        for slide_info in slides:
+            slide_layout = self.prs.slide_layouts[1] # Title and Content
             slide = self.prs.slides.add_slide(slide_layout)
-            self._apply_slide_master_style(slide)
-
+            
             # Title
             title = slide.shapes.title
             title.text = slide_info.get("title", "Untitled")
-            title.text_frame.paragraphs[0].font.bold = True
-            title.text_frame.paragraphs[0].font.color.rgb = RGBColor(255, 255, 255)
-
+            
             # Content
             content_shape = slide.placeholders[1]
             tf = content_shape.text_frame
-            tf.clear() # Clear default empty paragraph
+            tf.clear()
             
             for point in slide_info.get("content", []):
-                self._add_text_bold(tf, point)
+                p = tf.add_paragraph()
+                p.text = point
+                p.font.size = Pt(18)
             
             # Add User Image if provided
             if image_path and os.path.exists(image_path):
-                # Add image to corner
                 try:
                     self.prs.slides[self.prs.slides.index(slide)].shapes.add_picture(
                         image_path, Inches(7.5), Inches(5.5), width=Inches(2)
@@ -97,21 +121,19 @@ class PPTXGenerator:
                 except Exception as e:
                     print(f"Could not add image: {e}")
 
-        # 4. Add Disclaimer Slide (Final Footer)
+        # 5. Add Disclaimer Slide
         blank_layout = self.prs.slide_layouts[6] 
         end_slide = self.prs.slides.add_slide(blank_layout)
-        self._apply_slide_master_style(end_slide)
         
         txBox = end_slide.shapes.add_textbox(Inches(1), Inches(3), Inches(8), Inches(2))
         tf = txBox.text_frame
         p = tf.add_paragraph()
         p.text = "Facut cu iubire de catre gPPTX, ATENTIE gPPTX POATE AVEA ERORI, SE RECOMANDA VERIFICAREA FISIERULUI FINAL!"
         p.font.bold = True
-        p.font.size = Pt(24)
-        p.font.color.rgb = RGBColor(255, 255, 255)
+        p.font.size = Pt(14)
         p.alignment = PP_ALIGN.CENTER
 
-        # 5. Save
+        # 6. Save
         try:
             self.prs.save(output_file)
             return f"Presentation saved successfully to {output_file}"
